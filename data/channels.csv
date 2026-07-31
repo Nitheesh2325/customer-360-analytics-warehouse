@@ -1,0 +1,6 @@
+channel_id,channel_name,channel_type,platform,source_system
+4001,Website,Digital,Web,CHANNEL_SYSTEM
+4002,Mobile App,Digital,Mobile,CHANNEL_SYSTEM
+4003,Retail Store,Physical,Store,CHANNEL_SYSTEM
+4004,Marketplace,Digital,Marketplace,CHANNEL_SYSTEM
+4005,Partner Store,Partner,Partner,CHANNEL_SYSTEM
