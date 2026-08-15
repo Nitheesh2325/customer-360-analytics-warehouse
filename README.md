@@ -130,8 +130,8 @@ running the same `python -m unittest` command.
 
 ## Boundaries
 
-This is a local portfolio system, not a deployed production service. No cloud
-deployment, production workload, runtime performance target, streaming CDC or
-watermark, or successful hosted CI run is claimed. The GitHub Actions workflow
-defines the automated test command; hosted CI status must be established only
-after the changes are published.
+This is a local portfolio system, not a deployed production service. It does
+not claim cloud deployment, a production workload, a runtime performance
+target, source-log CDC, streaming ingestion, or watermark-based extraction.
+The GitHub Actions test workflow passed for the published repository. Database
+loads use table-scoped transactions rather than one pipeline-wide transaction.

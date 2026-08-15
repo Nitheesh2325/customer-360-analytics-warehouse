@@ -1,240 +1,73 @@
-# Customer 360 Analytics Warehouse - Data Model
-
-## Warehouse Design
-
-The warehouse uses a star schema.
-
-### Fact Table
-
-- fact_sales
-
-### Dimension Tables
-
-- dim_customer
-- dim_product
-- dim_date
-- dim_location
-- dim_channel
-
-## Table Grain
-
-### fact_sales
-
-One row represents one completed order. `order_id` is the business key and
-idempotency key. The current project does not model multi-line orders.
-
-## dim_customer
-
-Purpose:
-
-Stores customer information and preserves historical customer changes using Slowly Changing Dimension Type 2.
-
-Columns:
-
-| Column | PostgreSQL Type | Purpose |
-|---|---|---|
-| customer_key | BIGSERIAL | Warehouse surrogate primary key |
-| customer_id | INTEGER | Customer business identifier from source systems |
-| customer_name | VARCHAR(150) | Standardized customer name |
-| email | VARCHAR(255) | Customer email |
-| phone | VARCHAR(30) | Customer phone |
-| address | VARCHAR(255) | Customer street address |
-| city | VARCHAR(100) | Customer city |
-| state | VARCHAR(100) | Customer state |
-| country | VARCHAR(100) | Customer country |
-| customer_segment | VARCHAR(50) | Customer business segment |
-| loyalty_tier | VARCHAR(50) | Customer loyalty level |
-| signup_date | DATE | Customer registration date |
-| row_hash | VARCHAR(64) | Detects attribute changes |
-| effective_from | TIMESTAMP | Beginning of this customer version |
-| effective_to | TIMESTAMP | End of this customer version |
-| is_current | BOOLEAN | Identifies the active version |
-| source_system | VARCHAR(50) | Originating source system |
-| created_at | TIMESTAMP | Warehouse insert timestamp |
-| updated_at | TIMESTAMP | Warehouse update timestamp |
-
-Primary Key:
-
-- customer_key
-
-Business Key:
-
-- customer_id
-
-## dim_product
-
-### Purpose
-
-Stores standardized product information for analytics.
-
-This dimension tracks product attributes and supports future product analysis.
-
-| Column | PostgreSQL Type | Purpose |
-|---------|-----------------|---------|
-| product_key | BIGSERIAL | Warehouse surrogate primary key |
-| product_id | INTEGER | Product business identifier |
-| product_name | VARCHAR(150) | Standardized product name |
-| category | VARCHAR(100) | Product category |
-| subcategory | VARCHAR(100) | Product subcategory |
-| brand | VARCHAR(100) | Product brand |
-| supplier | VARCHAR(100) | Product supplier |
-| unit_cost | NUMERIC(10,2) | Product cost |
-| selling_price | NUMERIC(10,2) | Selling price |
-| row_hash | VARCHAR(64) | Detects attribute changes |
-| source_system | VARCHAR(50) | Source system |
-| created_at | TIMESTAMP | Warehouse insert timestamp |
-| updated_at | TIMESTAMP | Warehouse update timestamp |
-
-Primary Key:
-
-- product_key
-
-## dim_location
-
-### Purpose
-
-Stores standardized geographical information for customers, stores, and sales reporting.
-
-| Column | PostgreSQL Type | Purpose |
-|---------|-----------------|---------|
-| location_key | BIGSERIAL | Warehouse surrogate primary key |
-| location_id | INTEGER | Business identifier from source systems |
-| country | VARCHAR(100) | Country |
-| state | VARCHAR(100) | State or province |
-| city | VARCHAR(100) | City |
-| postal_code | VARCHAR(20) | ZIP or postal code |
-| region | VARCHAR(100) | Sales region |
-| row_hash | VARCHAR(64) | Detects attribute changes |
-| source_system | VARCHAR(50) | Source application |
-| created_at | TIMESTAMP | Warehouse insert timestamp |
-| updated_at | TIMESTAMP | Warehouse update timestamp |
-
-Primary Key:
-
-- location_key
-
-Business Key:
-
-- location_id
-
-## dim_channel
-
-### Purpose
-
-Stores the sales channel information used to identify where each order originated.
-
-Examples include online, mobile app, physical store, marketplace, and partner channels.
-
-| Column | PostgreSQL Type | Purpose |
-|---------|-----------------|---------|
-| channel_key | BIGSERIAL | Warehouse surrogate primary key |
-| channel_id | INTEGER | Business identifier from source systems |
-| channel_name | VARCHAR(100) | Sales channel name |
-| channel_type | VARCHAR(100) | Type of sales channel |
-| platform | VARCHAR(100) | Platform or application name |
-| row_hash | VARCHAR(64) | Detects attribute changes |
-| source_system | VARCHAR(50) | Originating source system |
-| created_at | TIMESTAMP | Warehouse insert timestamp |
-| updated_at | TIMESTAMP | Warehouse update timestamp |
-
-Primary Key:
-
-- channel_key
-
-Business Key:
-
-- channel_id
-
-## dim_date
-
-### Purpose
-
-Stores calendar information for reporting and time-based analytics.
-
-| Column | PostgreSQL Type | Purpose |
-|---------|-----------------|---------|
-| date_key | INTEGER | Warehouse date key (YYYYMMDD) |
-| full_date | DATE | Calendar date |
-| day | SMALLINT | Day of month |
-| month | SMALLINT | Month number |
-| month_name | VARCHAR(20) | Month name |
-| quarter | SMALLINT | Quarter |
-| year | SMALLINT | Year |
-| week_number | SMALLINT | Week number |
-| day_name | VARCHAR(20) | Day name |
-| is_weekend | BOOLEAN | Weekend indicator |
-| created_at | TIMESTAMP | Warehouse record creation timestamp |
-| updated_at | TIMESTAMP | Warehouse record last update timestamp |
-
-Primary Key:
-
-- date_key
-
-
-## fact_sales
-
-### Purpose
-
-Stores every sales transaction in the warehouse.
-
-Each row represents one completed sale made by a customer.
-
-This table connects all dimension tables and contains the measurable business values used for reporting and analytics.
-
-### Columns
-
-| Column | PostgreSQL Type | Purpose |
-|---|---|---|
-| sales_key | BIGSERIAL | Surrogate primary key for each warehouse sales record |
-| order_id | BIGINT | Unique order identifier and idempotency key |
-| customer_key | BIGINT | Foreign key to dim_customer |
-| product_key | BIGINT | Foreign key to dim_product |
-| location_key | BIGINT | Foreign key to dim_location |
-| channel_key | BIGINT | Foreign key to dim_channel |
-| date_key | INTEGER | Foreign key to dim_date |
-| quantity | INTEGER | Number of units sold |
-| unit_price | NUMERIC(12,2) | Selling price for one unit |
-| discount | NUMERIC(5,2) | Discount fraction from 0 through 1 |
-| total_amount | NUMERIC(14,2) | Quantity × unit price after discount |
-| source_system | VARCHAR(50) | Source system that produced the record |
-| created_at | TIMESTAMP | Warehouse record creation timestamp |
-| updated_at | TIMESTAMP | Warehouse record last update timestamp |
-
-Primary Key:
-
-- sales_key
-
-Foreign Keys:
-
-- customer_key → dim_customer.customer_key
-- product_key → dim_product.product_key
-- location_key → dim_location.location_key
-- channel_key → dim_channel.channel_key
-- date_key → dim_date.date_key
-
-
-### Grain
-
-The grain of the fact_sales table is:
-
-**One row represents one completed customer order.**
-
-Each `order_id` appears at most once. Multi-line order modeling is outside the
-scope of this project.
-
-
-### Business Purpose
-
-The fact_sales table stores measurable business events.
-
-It is used to answer business questions such as:
-
-- Total revenue
-- Monthly sales
-- Best-selling products
-- Customer Lifetime Value (CLV)
-- Sales by region
-- Sales by channel
-- Average Order Value (AOV)
-- Discount analysis
-- Tax analysis
+# Data Model
+
+Customer360 uses a PostgreSQL star schema. `warehouse.fact_sales` is the fact
+table; customer, product, location, channel, and date are dimensions.
+
+## Fact grain
+
+`warehouse.fact_sales` contains one row per source order, identified by the
+unique `order_id`. The project does not model order lines. Measures are
+`quantity`, `unit_price`, `discount`, and `total_amount`.
+
+| Foreign key | Dimension |
+| --- | --- |
+| `customer_key` | `dim_customer.customer_key` |
+| `product_key` | `dim_product.product_key` |
+| `location_key` | `dim_location.location_key` |
+| `channel_key` | `dim_channel.channel_key` |
+| `date_key` | `dim_date.date_key` |
+
+## SCD Type 2 dimensions
+
+`dim_customer` and `dim_product` preserve versions using the same technical
+fields:
+
+| Column | Purpose |
+| --- | --- |
+| Surrogate key | Unique warehouse version identifier |
+| Business key | `customer_id` or `product_id` |
+| `row_hash` | Hash of controlled tracked source attributes |
+| `effective_from` | Start of the version's effective range |
+| `effective_to` | End of the version's effective range; null for a current row |
+| `is_current` | Identifies the active version |
+| `is_deleted` | Marks a version expired by an operation-marker delete |
+| `source_system` | Synthetic source-domain label |
+| `created_at`, `updated_at` | Warehouse audit timestamps |
+
+Customer tracked attributes include name, contact and address fields, segment,
+loyalty tier, and signup date. Product tracked attributes include name,
+category, subcategory, brand, supplier, unit cost, and selling price.
+
+Partial unique indexes enforce at most one current customer row per
+`customer_id` and one current product row per `product_id`.
+
+## Stable dimensions
+
+- `dim_location` stores country, state, city, postal code, and region for each
+  `location_id`.
+- `dim_channel` stores name, type, and platform for each `channel_id`.
+- `dim_date` stores one calendar row per date from 2023-01-01 through
+  2025-12-31, keyed as `YYYYMMDD`.
+
+Location and channel use repeat-safe insert-on-conflict loading. The date
+dimension is populated by the repeat-safe database bootstrap.
+
+## Attribution boundary
+
+During a sales load, customer and product business identifiers resolve to the
+dimension versions that are current and active at load time. The fact therefore
+does not prove event-time historical attribution to the version effective on
+the original order date. Event-time attribution would require an effective
+range lookup for each order.
+
+## Integrity and transaction boundary
+
+Primary keys, foreign keys, business-key uniqueness, current-row uniqueness,
+measure checks, and fact join indexes protect the model. Each table load uses
+its own transaction; the complete pipeline is not one atomic transaction.
+Earlier successful table loads and independently persisted rejected records can
+remain committed if a later table fails. Repeat-safe loading is the recovery
+contract for this local project.
+
+The model supports revenue, order, product, customer, region, channel,
+discount, and time-based analysis. It contains no tax measure.

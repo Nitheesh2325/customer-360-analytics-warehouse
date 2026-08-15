@@ -33,7 +33,7 @@ flowchart TB
         DD[("dim_date")]
         FS[("fact_sales: one row per order")]
         RR[("rejected_records")]
-        EL[("etl_run_log and cdc_audit_log")]
+        EL[("etl_run_log and cdc_audit_log change records")]
         AV["sales_analytics view"]
     end
 
@@ -78,6 +78,15 @@ flowchart TB
    insert-on-conflict loading into `fact_sales`.
 6. The `sales_analytics` view joins the star schema for the 20 retained SQL
    queries.
+
+The existing `cdc_audit_log` identifier is retained for compatibility. It
+records SCD inserts, updates, and operation-marker deletes detected during
+batch processing. It is not source-log CDC, streaming ingestion, or a
+watermark-based extraction mechanism.
+
+Each table load has its own transaction. A failure in a later table does not
+roll back tables that committed earlier; repeat-safe loaders provide the local
+recovery contract.
 
 ## Attribution boundary
 
