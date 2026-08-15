@@ -29,8 +29,8 @@ def standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Remove duplicate rows and reject records only when
-    essential identifier columns are missing.
+    Remove exact duplicate rows. Loader-specific validation handles
+    missing or invalid identifiers so rejected records remain observable.
     """
     print("Cleaning data...")
 
@@ -38,26 +38,6 @@ def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
     # Remove exact duplicate rows
     df = df.drop_duplicates()
-
-    # Each CSV has one main business identifier.
-    possible_identifier_columns = [
-        "customer_id",
-        "product_id",
-        "location_id",
-        "channel_id",
-        "order_id",
-    ]
-
-    required_columns = [
-        column
-        for column in possible_identifier_columns
-        if column in df.columns
-    ]
-
-    # Do not remove rows because optional fields such as
-    # effective_to are empty.
-    if required_columns:
-        df = df.dropna(subset=required_columns)
 
     return df
 

@@ -20,9 +20,8 @@ The warehouse uses a star schema.
 
 ### fact_sales
 
-One row represents one product sold within one customer order.
-
-This means one order containing three products creates three rows in fact_sales.
+One row represents one completed order. `order_id` is the business key and
+idempotency key. The current project does not model multi-line orders.
 
 ## dim_customer
 
@@ -187,7 +186,7 @@ This table connects all dimension tables and contains the measurable business va
 | Column | PostgreSQL Type | Purpose |
 |---|---|---|
 | sales_key | BIGSERIAL | Surrogate primary key for each warehouse sales record |
-| order_id | VARCHAR(50) | Original order identifier from the source system |
+| order_id | BIGINT | Unique order identifier and idempotency key |
 | customer_key | BIGINT | Foreign key to dim_customer |
 | product_key | BIGINT | Foreign key to dim_product |
 | location_key | BIGINT | Foreign key to dim_location |
@@ -195,10 +194,8 @@ This table connects all dimension tables and contains the measurable business va
 | date_key | INTEGER | Foreign key to dim_date |
 | quantity | INTEGER | Number of units sold |
 | unit_price | NUMERIC(12,2) | Selling price for one unit |
-| discount_amount | NUMERIC(12,2) | Discount applied to the sale |
-| tax_amount | NUMERIC(12,2) | Tax charged on the sale |
-| gross_amount | NUMERIC(14,2) | Amount before discount |
-| net_amount | NUMERIC(14,2) | Final amount after discount and tax |
+| discount | NUMERIC(5,2) | Discount fraction from 0 through 1 |
+| total_amount | NUMERIC(14,2) | Quantity × unit price after discount |
 | source_system | VARCHAR(50) | Source system that produced the record |
 | created_at | TIMESTAMP | Warehouse record creation timestamp |
 | updated_at | TIMESTAMP | Warehouse record last update timestamp |
@@ -220,19 +217,10 @@ Foreign Keys:
 
 The grain of the fact_sales table is:
 
-**One row represents one product sold in one completed customer order.**
+**One row represents one completed customer order.**
 
-Example:
-
-Order ID: ORD1001
-
-| Product | Quantity |
-|---------|----------|
-| Laptop | 1 |
-| Mouse | 2 |
-| Keyboard | 1 |
-
-This order generates **three rows** in fact_sales because each product line is stored separately.
+Each `order_id` appears at most once. Multi-line order modeling is outside the
+scope of this project.
 
 
 ### Business Purpose

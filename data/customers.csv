@@ -1,4 +1,4 @@
-customer_id,customer_name,email,phone,address,city,state,country,customer_segment=consumer,loyalty_tier,signup_date,source_system
+customer_id,customer_name,email,phone,address,city,state,country,customer_segment,loyalty_tier,signup_date,source_system
 100000,Daniel Brown,daniel.brown0@example.com,937-754-2824,1794 Main Street,Chicago,Illinois,USA,Consumer,Silver,2025-08-22,CRM
 100001,Emma Davis,emma.davis1@example.com,937-125-5506,7955 Main Street,Chicago,Illinois,USA,Small Business,Bronze,2022-03-20,CRM
 100002,Arjun Moore,arjun.moore2@example.com,937-350-4657,4054 Main Street,Dallas,Texas,USA,Consumer,Bronze,2020-08-12,CRM

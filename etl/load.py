@@ -13,7 +13,7 @@ Responsibilities
 
 from __future__ import annotations
 
-import os
+import json
 import re
 from datetime import datetime
 from typing import Any
@@ -23,34 +23,21 @@ from sqlalchemy import MetaData, Table, create_engine, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
 
+from etl.config import get_database_url
 from etl.scd2 import load_scd2_dimension
+from etl.validation import RejectedRecord, validate_fact_records
 
 
 # ============================================================
 # DATABASE CONNECTION
 # ============================================================
 
-DATABASE_PASSWORD = os.getenv("CUSTOMER360_DB_PASSWORD")
-
-if not DATABASE_PASSWORD:
-    raise RuntimeError(
-        "CUSTOMER360_DB_PASSWORD is not set. "
-        "Set it in PowerShell before running the pipeline."
-    )
-
-
-DATABASE_URL = (
-    f"postgresql+psycopg2://postgres:{DATABASE_PASSWORD}"
-    "@localhost:5432/customer360_dw"
-)
-
-
 def get_engine() -> Engine:
     """
     Create and return a PostgreSQL SQLAlchemy engine.
     """
     return create_engine(
-        DATABASE_URL,
+        get_database_url(),
         pool_pre_ping=True,
     )
 
@@ -252,6 +239,48 @@ def prepare_records(
         records.append(clean_record)
 
     return records
+
+
+def persist_rejected_records(
+    engine: Engine,
+    table_name: str,
+    business_key: str,
+    rejected_records: list[RejectedRecord],
+) -> None:
+    """Persist rejected records in an independent committed transaction."""
+    if not rejected_records:
+        return
+
+    metadata = MetaData()
+    rejected_table = Table(
+        "rejected_records",
+        metadata,
+        schema="warehouse",
+        autoload_with=engine,
+    )
+    available_columns = {column.name for column in rejected_table.columns}
+    with engine.begin() as connection:
+        for rejected in rejected_records:
+            raw_record = {
+                column: make_postgres_safe(value)
+                for column, value in rejected.raw_record.items()
+            }
+            raw_record = json.loads(json.dumps(raw_record, default=str))
+            candidates = {
+                "source_name": "Customer 360 CSV Source",
+                "table_name": table_name,
+                "business_key": str(raw_record.get(business_key, "MISSING")),
+                "raw_record": raw_record,
+                "rejection_reason": rejected.reason,
+                "rejected_at": datetime.now(),
+                "resolved": False,
+            }
+            values = {
+                column: value
+                for column, value in candidates.items()
+                if column in available_columns
+            }
+            connection.execute(rejected_table.insert().values(**values))
 
 
 def filter_record_for_table(
@@ -456,7 +485,13 @@ def prepare_fact_sales(
     - date_key
     """
 
-    sales = dataframe.copy()
+    sales, validation_rejections = validate_fact_records(dataframe)
+    persist_rejected_records(
+        engine=engine,
+        table_name="fact_sales",
+        business_key="order_id",
+        rejected_records=validation_rejections,
+    )
 
     required_columns = {
         "order_id",
@@ -621,6 +656,14 @@ def prepare_fact_sales(
         errors="coerce",
     )
 
+    date_lookup = pd.read_sql(
+        "SELECT date_key FROM warehouse.dim_date",
+        engine,
+    )
+    valid_date_keys = set(
+        pd.to_numeric(date_lookup["date_key"], errors="coerce").dropna()
+    )
+
     # --------------------------------------------------------
     # Validate lookup results
     # --------------------------------------------------------
@@ -635,29 +678,24 @@ def prepare_fact_sales(
 
     missing_lookup_mask = sales[
         surrogate_key_columns
-    ].isna().any(axis=1)
+    ].isna().any(axis=1) | ~sales["date_key"].isin(valid_date_keys)
 
     missing_lookup_count = int(
         missing_lookup_mask.sum()
     )
 
     if missing_lookup_count > 0:
-        sample_failures = sales.loc[
-            missing_lookup_mask,
-            [
-                "order_id",
-                "customer_id",
-                "product_id",
-                "location_id",
-                "channel_id",
-            ],
-        ].head(10)
-
-        raise ValueError(
-            f"{missing_lookup_count} fact_sales rows could not "
-            "be matched to warehouse dimensions.\n"
-            f"Sample unmatched records:\n{sample_failures}"
+        lookup_rejections = [
+            RejectedRecord(row.to_dict(), "source reference did not resolve")
+            for _, row in sales.loc[missing_lookup_mask].iterrows()
+        ]
+        persist_rejected_records(
+            engine=engine,
+            table_name="fact_sales",
+            business_key="order_id",
+            rejected_records=lookup_rejections,
         )
+        sales = sales.loc[~missing_lookup_mask].copy()
 
     # --------------------------------------------------------
     # Keep only warehouse.fact_sales columns

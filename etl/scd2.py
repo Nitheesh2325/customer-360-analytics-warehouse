@@ -37,7 +37,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
@@ -47,36 +46,21 @@ from sqlalchemy import MetaData, Table, create_engine, select
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import NoSuchTableError
 
+from etl.config import get_database_url
+
 
 # ============================================================
 # DATABASE CONNECTION
 # ============================================================
 
-DATABASE_PASSWORD = os.getenv("CUSTOMER360_DB_PASSWORD")
-
-DATABASE_URL = (
-    f"postgresql+psycopg2://postgres:{DATABASE_PASSWORD}"
-    "@localhost:5432/customer360_dw"
-    if DATABASE_PASSWORD
-    else None
-)
-
-
 def get_engine() -> Engine:
     """
     Create the PostgreSQL SQLAlchemy engine.
 
-    The password must be available in:
-    CUSTOMER360_DB_PASSWORD
+    Connection settings are loaded by etl.config from the environment or .env.
     """
-    if not DATABASE_URL:
-        raise RuntimeError(
-            "CUSTOMER360_DB_PASSWORD is not set. "
-            "Set it in PowerShell before running the pipeline."
-        )
-
     return create_engine(
-        DATABASE_URL,
+        get_database_url(),
         pool_pre_ping=True,
     )
 
@@ -231,20 +215,9 @@ def build_row_hash(
     """
     Create a stable SHA-256 hash from business attributes.
 
-    Existing source row_hash values are respected. When row_hash is missing,
-    empty, or clearly placeholder-like, a fresh hash is generated.
+    Source-provided hashes are never trusted. The warehouse recomputes a stable
+    hash from controlled business attributes on every load.
     """
-    supplied_hash = record.get("row_hash")
-
-    if supplied_hash not in (None, ""):
-        supplied_hash_text = str(supplied_hash).strip()
-
-        # Preserve a real supplied hash, but regenerate simplistic demo values.
-        if not supplied_hash_text.lower().startswith(
-            ("hash00", "producthash")
-        ):
-            return supplied_hash_text
-
     ignored_columns = TECHNICAL_COLUMNS | set(OPERATION_COLUMNS)
 
     hash_payload = {
@@ -349,7 +322,7 @@ def quarantine_record(
         "source_name": "Customer 360 CSV Source",
         "table_name": table_name,
         "business_key": str(raw_record.get(business_key, "MISSING")),
-        "raw_record": raw_record,
+        "raw_record": json.loads(json.dumps(raw_record, default=str)),
         "rejection_reason": rejection_reason,
         "rejected_at": datetime.now(),
         "resolved": False,
@@ -362,6 +335,28 @@ def quarantine_record(
     if values:
         connection.execute(
             rejected_table.insert().values(**values)
+        )
+
+
+def quarantine_record_independently(
+    engine: Engine,
+    table_name: str,
+    business_key: str,
+    raw_record: dict[str, Any],
+    rejection_reason: str,
+) -> None:
+    """Commit a rejection separately so a failed dimension transaction cannot erase it."""
+    rejected_table = reflect_optional_table(engine, "rejected_records")
+    if rejected_table is None:
+        return
+    with engine.begin() as connection:
+        quarantine_record(
+            connection=connection,
+            rejected_table=rejected_table,
+            table_name=table_name,
+            business_key=business_key,
+            raw_record=raw_record,
+            rejection_reason=rejection_reason,
         )
 
 
@@ -778,9 +773,8 @@ def load_scd2_dimension(
                 stats["updated"] += 1
 
             except Exception as record_error:
-                quarantine_record(
-                    connection=connection,
-                    rejected_table=rejected_table,
+                quarantine_record_independently(
+                    engine=active_engine,
                     table_name=table_name,
                     business_key=business_key,
                     raw_record=raw_record,

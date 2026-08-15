@@ -1,254 +1,137 @@
 # Customer 360 Analytics Warehouse
 
-## Project Overview
+A local PostgreSQL data warehouse that integrates deterministic customer,
+product, location, channel, and sales data for dimensional reporting. I built
+the pipeline to demonstrate reproducible database setup, surrogate-key
+resolution, SCD Type 2 dimension handling, incremental loads, data-quality
+quarantine, and SQL analytics.
 
-The Customer 360 Analytics Warehouse is an end-to-end data engineering project that combines customer, product, location, channel, and sales data into a centralized PostgreSQL warehouse.
+## Verified scope
 
-The project demonstrates how raw data from multiple source systems can be extracted, cleaned, transformed, validated, and loaded into a star-schema warehouse for business analytics.
+The checked-in sources and a clean local PostgreSQL verification run contain:
 
-The warehouse supports historical tracking using Slowly Changing Dimension Type 2, incremental loading, surrogate key resolution, data-quality validation, business reporting, and SQL performance optimization.
+| Dataset | Rows |
+| --- | ---: |
+| Customers | 25,000 |
+| Products | 2,000 |
+| Locations | 500 |
+| Channels | 5 |
+| Sales orders | 400,000 |
+| Calendar dates | 1,096 (2023-01-01 through 2025-12-31) |
 
-## Business Problem
-
-Organizations often store customer and transaction data across separate systems such as CRM platforms, product systems, sales applications, location systems, and digital channels.
-
-This makes it difficult to answer business questions such as:
-
-- Who are the highest-value customers?
-- Which products generate the most revenue?
-- Which sales channels perform best?
-- Which regions generate the highest sales?
-- How do customer and product attributes change over time?
-- Are all fact-table records connected to valid dimension records?
-
-This project solves that problem by building a centralized Customer 360 analytics warehouse.
+The verification run loaded every source row, produced zero rejected rows and
+zero missing dimension references, and then loaded zero additional rows on a
+second complete ETL execution. All 20 retained analytical queries executed,
+and all 20 automated tests passed against the isolated PostgreSQL test
+database.
 
 ## Architecture
 
-The pipeline follows this flow:
-
-1. Source data is generated and stored in CSV files.
-2. Python extracts the source data.
-3. Column names and values are standardized.
-4. Duplicate and invalid records are cleaned.
-5. Customer and product dimensions are loaded using SCD Type 2.
-6. Location and channel dimensions are loaded incrementally.
-7. Business keys are resolved into surrogate keys.
-8. Sales transactions are loaded into the fact table.
-9. PostgreSQL views and SQL queries provide business analytics.
-10. Indexes and execution plans are used for performance optimization.
-
-## Tech Stack
-
-- Python
-- Pandas
-- NumPy
-- PostgreSQL
-- SQLAlchemy
-- Psycopg
-- SQL
-- VS Code
-- pgAdmin
-- Git
-- GitHub
-
-## Dataset
-
-The generated dataset contains:
-
-- 25,000 customers
-- 2,000 products
-- 500 locations
-- 5 sales channels
-- 400,000 sales transactions
-- Date records covering 2023 through 2025
-
-## Data Model
-
-The warehouse uses a star schema.
-
-### Dimension Tables
-
-- `warehouse.dim_customer`
-- `warehouse.dim_product`
-- `warehouse.dim_location`
-- `warehouse.dim_channel`
-- `warehouse.dim_date`
-
-### Fact Table
-
-- `warehouse.fact_sales`
-
-The fact table stores measurable sales activity and connects to the dimensions through surrogate keys.
-
-## ETL Pipeline
-
-The ETL pipeline contains the following modules:
-
-- `extract.py` — reads source CSV files
-- `transform.py` — standardizes columns and cleans records
-- `load.py` — loads dimensions and fact data into PostgreSQL
-- `scd2.py` — manages historical customer and product records
-- `pipeline.py` — coordinates the full ETL process
-
-The pipeline is idempotent, meaning repeated execution does not create duplicate fact records.
-
-## Slowly Changing Dimension Type 2
-
-Customer and product dimensions use SCD Type 2.
-
-When a tracked attribute changes:
-
-1. The current record is expired.
-2. `effective_to` is populated.
-3. `is_current` becomes false.
-4. A new version is inserted.
-5. The new version receives a new surrogate key.
-6. Historical versions remain available for analysis.
-
-A row hash is used to identify attribute changes efficiently.
-
-## Surrogate Key Resolution
-
-Source sales records contain business identifiers such as:
-
-- `customer_id`
-- `product_id`
-- `location_id`
-- `channel_id`
-- `order_date`
-
-Before loading the fact table, the pipeline resolves these values into warehouse surrogate keys:
-
-- `customer_key`
-- `product_key`
-- `location_key`
-- `channel_key`
-- `date_key`
-
-This ensures valid relationships between the fact and dimension tables.
-
-## Business Analytics
-
-The project includes SQL queries and reporting views for:
-
-- Total revenue
-- Total orders
-- Top customers by revenue
-- Top products by revenue
-- Revenue by category
-- Revenue by channel
-- Revenue by region
-- Monthly revenue trends
-- Customer lifetime value
-- Customer segmentation
-- Inactive customers
-- Foreign-key data-quality validation
-
-## Performance Optimization
-
-The fact table contains approximately 400,000 sales records.
-
-Indexes were created on:
-
-- `customer_key`
-- `product_key`
-- `location_key`
-- `channel_key`
-- `date_key`
-
-PostgreSQL `EXPLAIN ANALYZE` was used to inspect query execution.
-
-The optimized product revenue query completed in approximately 300 milliseconds and used:
-
-- Parallel sequential scanning
-- Hash joins
-- Parallel workers
-- Hash aggregation
-- Top-N sorting
-
-## Data Quality
-
-The project validates:
-
-- Duplicate business keys
-- Missing required identifiers
-- Missing customer relationships
-- Missing product relationships
-- Missing location relationships
-- Missing channel relationships
-- Missing date relationships
-- Current SCD records
-- Historical SCD records
-
-The final warehouse validation confirmed zero missing foreign-key relationships.
-
-## How to Run the Project
-
-### Clone the repository
-
-```bash
-git clone https://github.com/Nitheesh2325/customer-360-analytics-warehouse.git
-cd customer-360-analytics-warehouse
+```mermaid
+flowchart LR
+    A["Deterministic CSV sources"] --> B["Python extraction"]
+    B --> C["Pandas standardization and validation"]
+    C --> D["SCD2 loaders: customer and product"]
+    C --> E["Incremental loaders: location and channel"]
+    D --> F["Surrogate-key resolution"]
+    E --> F
+    F --> G["Incremental sales fact loader"]
+    C --> H["Rejected-record quarantine"]
+    D --> I[("PostgreSQL warehouse")]
+    E --> I
+    G --> I
+    H --> I
+    I --> J["Analytics view and 20 SQL queries"]
 ```
 
-### Install dependencies
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
+[docs/DATA_MODEL.md](docs/DATA_MODEL.md) for the execution path and table
+grain.
+
+## Warehouse design
+
+`warehouse.fact_sales` has one row per source order and joins to customer,
+product, location, channel, and date dimensions through surrogate keys.
+Primary keys, foreign keys, business-key uniqueness constraints, partial
+unique indexes for one current SCD row, and fact join indexes are created by
+the versioned bootstrap.
+
+Customer and product loaders implement SCD Type 2 behavior: a tracked change
+expires the current row and inserts a new version; unchanged rows are skipped;
+delete events expire the active version. Hashes are derived from controlled
+source attributes rather than trusted from input.
+
+Important limitation: sales facts resolve customer and product keys to the
+version that is current when the ETL runs. The project does not perform
+event-time historical attribution, so it should not be used to claim that a
+sale is linked to the dimension version effective on its original order date.
+
+## Data quality and reruns
+
+Before loading sales, the pipeline validates required identifiers, positive
+integer quantities, non-negative prices and totals, discounts from zero to
+one, and amount reconciliation to a one-cent source-rounding tolerance.
+Unresolved dimension or date references and invalid records are persisted to
+`warehouse.rejected_records`.
+
+Dimension current-row uniqueness and database constraints protect warehouse
+integrity. Incremental loaders use business-key conflicts to skip records that
+already exist. Each table load is recorded in `warehouse.etl_run_log`.
+
+## Run locally
+
+Requirements: Python 3.12+ and a local PostgreSQL database created specifically
+for this project. The database name must end in `_dev` or `_test`.
 
 ```bash
-pip install pandas numpy sqlalchemy psycopg python-dotenv
+python -m pip install -r requirements.txt
 ```
 
-### Create a .env file
+Copy `.env.example` to `.env` and set the local connection values. Credentials
+must not be committed.
 
-```text
-CUSTOMER360_DB_PASSWORD=your_postgresql_password
+```dotenv
+CUSTOMER360_DB_HOST=localhost
+CUSTOMER360_DB_PORT=5432
+CUSTOMER360_DB_NAME=customer360_dev
+CUSTOMER360_DB_USER=customer360_app
+CUSTOMER360_DB_PASSWORD=replace_with_local_password
 ```
 
-### Run the ETL pipeline
+The database must already exist. The initializer will not create, drop, or
+reset it, and it refuses protected names, confirmation mismatches, and unknown
+pre-existing `warehouse` schemas.
 
 ```bash
+python scripts/init_database.py --confirm-database customer360_dev
 python -m etl.pipeline
 ```
 
-## Project Structure
+Run the isolated PostgreSQL integration test by supplying a database URL whose
+database name ends in `_test`:
 
-```text
-customer-360-analytics-warehouse/
-│
-├── config/
-├── data/
-│   ├── customers.csv
-│   ├── products.csv
-│   ├── locations.csv
-│   ├── channels.csv
-│   └── sales.csv
-│
-├── docs/
-│   ├── ARCHITECTURE.md
-│   ├── ARCHITECTURE_DIAGRAM.md
-│   ├── DATA_MODEL.md
-│   ├── ENGINEERING_DECISIONS.md
-│   ├── ER_DIAGRAM.md
-│   ├── INTERVIEW_GUIDE.md
-│   ├── PROJECT_CHARTER.md
-│   └── PROJECT_JOURNAL.md
-│
-├── etl/
-│   ├── extract.py
-│   ├── transform.py
-│   ├── load.py
-│   ├── scd2.py
-│   └── pipeline.py
-│
-├── screenshots/
-├── scripts/
-│   └── generate_large_dataset.py
-│
-├── sql/
-│   ├── business_queries.sql
-│   └── views.sql
-│
-├── tests/
-├── .env.example
-├── .gitignore
-└── README.md
+```bash
+CUSTOMER360_TEST_DATABASE_URL="postgresql+psycopg2://.../customer360_test" \
+python -m unittest discover -s tests -v
+```
+
+On PowerShell, set the environment variable for the current process before
+running the same `python -m unittest` command.
+
+## Repository guide
+
+- `database/` — repeat-safe PostgreSQL schema and date-dimension bootstrap
+- `etl/` — extraction, transformation, validation, SCD2, and loading code
+- `sql/views.sql` — reporting view
+- `sql/business_queries.sql` — 20 verified analytical and validation queries
+- `tests/` — database-contract, PostgreSQL integration, SCD2, validation, and
+  incremental-load tests
+- `scripts/generate_large_dataset.py` — deterministic synthetic source builder
+
+## Boundaries
+
+This is a local portfolio system, not a deployed production service. No cloud
+deployment, production workload, runtime performance target, streaming CDC or
+watermark, or successful hosted CI run is claimed. The GitHub Actions workflow
+defines the automated test command; hosted CI status must be established only
+after the changes are published.

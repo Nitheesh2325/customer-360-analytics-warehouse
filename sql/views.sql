@@ -3,7 +3,12 @@ CREATE OR REPLACE VIEW warehouse.sales_analytics AS
 SELECT
 
     f.sales_key,
+    f.order_id,
     d.full_date,
+    d.month,
+    d.month_name,
+    d.year,
+    d.is_weekend,
 
     c.customer_id,
     c.customer_name,
@@ -17,8 +22,10 @@ SELECT
     l.city,
     l.state,
     l.country,
+    l.region,
 
     ch.channel_name,
+    ch.channel_type,
 
     f.quantity,
     f.unit_price,
